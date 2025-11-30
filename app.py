@@ -74,21 +74,38 @@ def physchem_features(seq: str):
     aromatic_frac = float(aromatic_count / L)
     return [L, hydro_mean, hydro_std, mw, net_charge, aromatic_frac]
 
+# def make_feature_row(seq: str) -> pd.DataFrame:
+#     """Build one-row feature DataFrame matching FEATURE_COLS."""
+#     seq = seq.strip().upper()
+#     # numeric features
+#     aac = aa_composition(seq)
+#     phys = physchem_features(seq)
+#     num_feats = dict(zip(AA_COMP_COLS + PHYSCHEM_COLS, aac + phys))
+
+#     # start with all-zero row
+#     row = pd.DataFrame([0.0] * len(FEATURE_COLS), index=FEATURE_COLS).T
+
+#     # fill numeric columns we actually compute
+#     for k, v in num_feats.items():
+#         if k in row.columns:
+#             row.at[row.index[0], k] = v
+
+#     return row
+
 def make_feature_row(seq: str) -> pd.DataFrame:
-    """Build one-row feature DataFrame matching FEATURE_COLS."""
     seq = seq.strip().upper()
-    # numeric features
+    # numeric features from the sequence
     aac = aa_composition(seq)
     phys = physchem_features(seq)
     num_feats = dict(zip(AA_COMP_COLS + PHYSCHEM_COLS, aac + phys))
 
-    # start with all-zero row
-    row = pd.DataFrame([0.0] * len(FEATURE_COLS), index=FEATURE_COLS).T
+    # create a single-row DataFrame with all feature columns, initialised to 0
+    row = pd.DataFrame([[0.0] * len(FEATURE_COLS)], columns=FEATURE_COLS)
 
     # fill numeric columns we actually compute
     for k, v in num_feats.items():
         if k in row.columns:
-            row.at[row.index[0], k] = v
+            row.at[0, k] = v
 
     return row
 
