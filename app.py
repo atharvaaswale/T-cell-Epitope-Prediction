@@ -86,15 +86,18 @@ def physchem_features(seq: str):
 
 def make_feature_row(
     seq: str,
-    src_choice: str = "(baseline / unspecified)",
-    mhc_choice: str = "(baseline / unspecified)",
-    resp_choice: str = "(baseline / unspecified)"
+    src_choice: str,
+    mhc_choice: str,
+    resp_choice: str
 ) -> pd.DataFrame:
     """
     Build one-row feature DataFrame matching FEATURE_COLS.
     Includes:
       - sequence-derived numeric features
       - one-hot encoding for selected Source Organism / MHC / Response
+
+    Baseline categories (BASE_SRC, BASE_MHC, BASE_RESP) are represented
+    by all-zero dummy columns for that group, as in training.
     """
     seq = seq.strip().upper()
 
@@ -111,20 +114,21 @@ def make_feature_row(
         if k in row.columns:
             row.at[0, k] = v
 
-    # --- One-hot for Source Organism ---
-    if src_choice != "(baseline / unspecified)":
+    # --- Source Organism one-hot ---
+    # baseline (BASE_SRC) = all zeros, so do nothing
+    if src_choice != BASE_SRC:
         for col in FEATURE_COLS:
             if col.startswith(SRC_PREFIX):
                 row.at[0, col] = 1.0 if col == SRC_PREFIX + src_choice else 0.0
 
-    # --- One-hot for MHC Present_mode ---
-    if mhc_choice != "(baseline / unspecified)":
+    # --- MHC Present_mode one-hot ---
+    if mhc_choice != BASE_MHC:
         for col in FEATURE_COLS:
             if col.startswith(MHC_PREFIX):
                 row.at[0, col] = 1.0 if col == MHC_PREFIX + mhc_choice else 0.0
 
-    # --- One-hot for Response_measured_mode ---
-    if resp_choice != "(baseline / unspecified)":
+    # --- Response_measured_mode one-hot ---
+    if resp_choice != BASE_RESP:
         for col in FEATURE_COLS:
             if col.startswith(RESP_PREFIX):
                 row.at[0, col] = 1.0 if col == RESP_PREFIX + resp_choice else 0.0
