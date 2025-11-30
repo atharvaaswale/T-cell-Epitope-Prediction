@@ -23,6 +23,11 @@ def load_model_and_meta():
 
 rf_model, DECISION_THR, FEATURE_COLS = load_model_and_meta()
 
+SRC_PLACEHOLDER  = "Select source organism"
+MHC_PLACEHOLDER  = "Select MHC context"
+RESP_PLACEHOLDER = "Select response type"
+
+
 # prefixes for one-hot columns (must match training)
 SRC_PREFIX  = "Source Organism_"
 MHC_PREFIX  = "MHC Present_mode_"
@@ -37,9 +42,10 @@ BASE_SRC  = "Mycobacterium tuberculosis"   # fill exact string as in your data
 BASE_RESP = "IFNg release"                 # fill exact string as in your data
 # BASE_MHC  = "HLA-DRB1*04:01"              # <-- EXAMPLE, replace with real one
 
-SRC_OPTIONS_UI  = [BASE_SRC] + SRC_OPTIONS
-MHC_OPTIONS_UI  =  MHC_OPTIONS # + [BASE_MHC]
-RESP_OPTIONS_UI = [BASE_RESP] + RESP_OPTIONS
+
+SRC_OPTIONS_UI  = [SRC_PLACEHOLDER, BASE_SRC] + SRC_OPTIONS
+MHC_OPTIONS_UI  = [MHC_PLACEHOLDER] + MHC_OPTIONS
+RESP_OPTIONS_UI = [RESP_PLACEHOLDER, BASE_RESP] + RESP_OPTIONS
 
 
 # ---------------------------
@@ -125,19 +131,20 @@ def make_feature_row(
 
     # --- Source Organism one-hot ---
     # baseline (BASE_SRC) = all zeros, so do nothing
-    if src_choice != BASE_SRC:
+    if src_choice not in [SRC_PLACEHOLDER, BASE_SRC]:
+        # one-hot others
         for col in FEATURE_COLS:
             if col.startswith(SRC_PREFIX):
                 row.at[0, col] = 1.0 if col == SRC_PREFIX + src_choice else 0.0
 
     # --- MHC Present_mode one-hot ---
-    if mhc_choice != BASE_MHC:
+    if mhc_choice not in [MHC_PLACEHOLDER]:
         for col in FEATURE_COLS:
             if col.startswith(MHC_PREFIX):
                 row.at[0, col] = 1.0 if col == MHC_PREFIX + mhc_choice else 0.0
 
     # --- Response_measured_mode one-hot ---
-    if resp_choice != BASE_RESP:
+    if resp_choice not in [RESP_PLACEHOLDER, BASE_RESP]:
         for col in FEATURE_COLS:
             if col.startswith(RESP_PREFIX):
                 row.at[0, col] = 1.0 if col == RESP_PREFIX + resp_choice else 0.0
@@ -190,22 +197,20 @@ with col_left:
     st.markdown("**Experimental / biological context (optional):**")
 
     src_choice = st.selectbox(
-    "Source organism",
-    options=SRC_OPTIONS_UI,
-    help="Matches the 'Source Organism' used during model training."
+        "Source organism",
+        options=SRC_OPTIONS_UI
     )
 
     mhc_choice = st.selectbox(
         "MHC context",
-        options=MHC_OPTIONS_UI,
-        help="Matches the 'MHC Present' grouping used during training."
+        options=MHC_OPTIONS_UI
     )
 
     resp_choice = st.selectbox(
         "Response measured",
-        options=RESP_OPTIONS_UI,
-        help="Matches the 'Response measured' category used during training."
+        options=RESP_OPTIONS_UI
     )
+
 
     run_single = st.button("Predict Immunogenicity", type="primary")
 
