@@ -38,7 +38,7 @@ BASE_RESP = "IFNg release"                 # fill exact string as in your data
 # BASE_MHC  = "HLA-DRB1*04:01"              # <-- EXAMPLE, replace with real one
 
 SRC_OPTIONS_UI  = [BASE_SRC] + SRC_OPTIONS
-# MHC_OPTIONS_UI  = [BASE_MHC] + MHC_OPTIONS
+MHC_OPTIONS_UI  =  MHC_OPTIONS # + [BASE_MHC]
 RESP_OPTIONS_UI = [BASE_RESP] + RESP_OPTIONS
 
 
