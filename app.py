@@ -33,6 +33,15 @@ SRC_OPTIONS  = sorted([c[len(SRC_PREFIX):]  for c in FEATURE_COLS if c.startswit
 MHC_OPTIONS  = sorted([c[len(MHC_PREFIX):]  for c in FEATURE_COLS if c.startswith(MHC_PREFIX)])
 RESP_OPTIONS = sorted([c[len(RESP_PREFIX):] for c in FEATURE_COLS if c.startswith(RESP_PREFIX)])
 
+BASE_SRC  = "Mycobacterium tuberculosis"   # fill exact string as in your data
+BASE_RESP = "IFNg release"                 # fill exact string as in your data
+# BASE_MHC  = "HLA-DRB1*04:01"              # <-- EXAMPLE, replace with real one
+
+SRC_OPTIONS_UI  = [BASE_SRC] + SRC_OPTIONS
+# MHC_OPTIONS_UI  = [BASE_MHC] + MHC_OPTIONS
+RESP_OPTIONS_UI = [BASE_RESP] + RESP_OPTIONS
+
+
 # ---------------------------
 # 2. Feature engineering helpers
 #    (must match training logic)
@@ -181,21 +190,21 @@ with col_left:
     st.markdown("**Experimental / biological context (optional):**")
 
     src_choice = st.selectbox(
-        "Source organism",
-        options=["(baseline / unspecified)"] + SRC_OPTIONS,
-        help="If you do not know, leave as baseline/unspecified."
+    "Source organism",
+    options=SRC_OPTIONS_UI,
+    help="Matches the 'Source Organism' used during model training."
     )
 
     mhc_choice = st.selectbox(
         "MHC context",
-        options=["(baseline / unspecified)"] + MHC_OPTIONS,
-        help="If you do not know, leave as baseline/unspecified."
+        options=MHC_OPTIONS_UI,
+        help="Matches the 'MHC Present' grouping used during training."
     )
 
     resp_choice = st.selectbox(
         "Response measured",
-        options=["(baseline / unspecified)"] + RESP_OPTIONS,
-        help="If you do not know, leave as baseline/unspecified."
+        options=RESP_OPTIONS_UI,
+        help="Matches the 'Response measured' category used during training."
     )
 
     run_single = st.button("Predict Immunogenicity", type="primary")
