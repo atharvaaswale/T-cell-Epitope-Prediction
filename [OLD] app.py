@@ -23,16 +23,6 @@ def load_model_and_meta():
 
 rf_model, DECISION_THR, FEATURE_COLS = load_model_and_meta()
 
-# prefixes for one-hot columns (must match training)
-SRC_PREFIX  = "Source Organism_"
-MHC_PREFIX  = "MHC Present_mode_"
-RESP_PREFIX = "Response_measured_mode_"
-
-# derive available options from feature names
-SRC_OPTIONS  = sorted([c[len(SRC_PREFIX):]  for c in FEATURE_COLS if c.startswith(SRC_PREFIX)])
-MHC_OPTIONS  = sorted([c[len(MHC_PREFIX):]  for c in FEATURE_COLS if c.startswith(MHC_PREFIX)])
-RESP_OPTIONS = sorted([c[len(RESP_PREFIX):] for c in FEATURE_COLS if c.startswith(RESP_PREFIX)])
-
 # ---------------------------
 # 2. Feature engineering helpers
 #    (must match training logic)
@@ -84,50 +74,38 @@ def physchem_features(seq: str):
     aromatic_frac = float(aromatic_count / L)
     return [L, hydro_mean, hydro_std, mw, net_charge, aromatic_frac]
 
-def make_feature_row(
-    seq: str,
-    src_choice: str = "(auto)",
-    mhc_choice: str = "(auto)",
-    resp_choice: str = "(auto)"
-) -> pd.DataFrame:
-    """
-    Build one-row feature DataFrame matching FEATURE_COLS.
-    Includes:
-      - sequence-derived numeric features
-      - one-hot encoding for selected Source Organism / MHC / Response
-    """
-    seq = seq.strip().upper()
+# def make_feature_row(seq: str) -> pd.DataFrame:
+#     """Build one-row feature DataFrame matching FEATURE_COLS."""
+#     seq = seq.strip().upper()
+#     # numeric features
+#     aac = aa_composition(seq)
+#     phys = physchem_features(seq)
+#     num_feats = dict(zip(AA_COMP_COLS + PHYSCHEM_COLS, aac + phys))
 
-    # numeric features from sequence
-    aac  = aa_composition(seq)
+#     # start with all-zero row
+#     row = pd.DataFrame([0.0] * len(FEATURE_COLS), index=FEATURE_COLS).T
+
+#     # fill numeric columns we actually compute
+#     for k, v in num_feats.items():
+#         if k in row.columns:
+#             row.at[row.index[0], k] = v
+
+#     return row
+
+def make_feature_row(seq: str) -> pd.DataFrame:
+    seq = seq.strip().upper()
+    # numeric features from the sequence
+    aac = aa_composition(seq)
     phys = physchem_features(seq)
     num_feats = dict(zip(AA_COMP_COLS + PHYSCHEM_COLS, aac + phys))
 
-    # start with all zeros for all features
+    # create a single-row DataFrame with all feature columns, initialised to 0
     row = pd.DataFrame([[0.0] * len(FEATURE_COLS)], columns=FEATURE_COLS)
 
-    # fill numeric columns
+    # fill numeric columns we actually compute
     for k, v in num_feats.items():
         if k in row.columns:
             row.at[0, k] = v
-
-    # --- One-hot for Source Organism ---
-    if src_choice != "(auto)":
-        for col in FEATURE_COLS:
-            if col.startswith(SRC_PREFIX):
-                row.at[0, col] = 1.0 if col == SRC_PREFIX + src_choice else 0.0
-
-    # --- One-hot for MHC Present_mode ---
-    if mhc_choice != "(auto)":
-        for col in FEATURE_COLS:
-            if col.startswith(MHC_PREFIX):
-                row.at[0, col] = 1.0 if col == MHC_PREFIX + mhc_choice else 0.0
-
-    # --- One-hot for Response_measured_mode ---
-    if resp_choice != "(auto)":
-        for col in FEATURE_COLS:
-            if col.startswith(RESP_PREFIX):
-                row.at[0, col] = 1.0 if col == RESP_PREFIX + resp_choice else 0.0
 
     return row
 
@@ -174,23 +152,6 @@ with col_left:
         placeholder="Enter MTB peptide sequence, e.g. QWERTYASDFGHKL"
     )
 
-    st.markdown("**Experimental / biological context (optional):**")
-
-    src_choice = st.selectbox(
-        "Source organism",
-        options=["(auto)"] + SRC_OPTIONS
-    )
-
-    mhc_choice = st.selectbox(
-        "MHC context",
-        options=["(auto)"] + MHC_OPTIONS
-    )
-
-    resp_choice = st.selectbox(
-        "Response measured",
-        options=["(auto)"] + RESP_OPTIONS
-    )
-
     run_single = st.button("Predict Immunogenicity", type="primary")
 
     st.markdown("---")
@@ -198,8 +159,7 @@ with col_left:
     uploaded_file = st.file_uploader(
         "Upload CSV with column 'Sequence' for batch prediction",
         type=["csv"],
-        help="Only the 'Sequence' column is required. Other columns will be ignored. "
-             "The same context selections above will be applied to all sequences."
+        help="Only the 'Sequence' column is required. Other columns will be ignored."
     )
     run_batch = st.button("Run Batch Prediction")
 
@@ -213,7 +173,7 @@ with col_right:
         if not is_valid:
             st.error(msg)
         else:
-            feats = make_feature_row(seq_input, src_choice, mhc_choice, resp_choice)
+            feats = make_feature_row(seq_input)
             proba = rf_model.predict_proba(feats)[:, 1][0]
             label = int(proba >= DECISION_THR)
             label_str = "Immunogenic" if label == 1 else "Non-immunogenic"
@@ -225,9 +185,9 @@ with col_right:
             st.markdown("**Interpretation (high level):**")
             st.markdown(
                 "- Prediction is based on sequence composition and physicochemical properties "
-                "(hydrophobicity, charge, molecular weight, aromaticity), together with the selected "
-                "experimental context (source organism, MHC restriction, response measured).\n"
-                "- The model was trained on curated MTB epitopes from IEDB and evaluated on a held-out test set.\n"
+                "(hydrophobicity, charge, molecular weight, aromaticity).\n"
+                "- The model was trained on curated MTB epitopes from IEDB "
+                "and evaluated on a held-out test set.\n"
                 "- Values close to the threshold should be interpreted with caution."
             )
 
@@ -255,7 +215,7 @@ with col_right:
                             preds.append(None)
                             probs.append(None)
                             continue
-                        feats = make_feature_row(seq, src_choice, mhc_choice, resp_choice)
+                        feats = make_feature_row(seq)
                         p = rf_model.predict_proba(feats)[:, 1][0]
                         probs.append(p)
                         preds.append(1 if p >= DECISION_THR else 0)
