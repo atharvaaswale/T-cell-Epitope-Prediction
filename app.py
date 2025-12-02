@@ -5,13 +5,6 @@ import pandas as pd
 import streamlit as st
 import joblib
 
-# to search epitopes
-DATA_PATH = "mtb_cleaned_final.csv"  # <- replace with your real file name
-
-@st.cache_data
-def load_data():
-    return pd.read_csv(DATA_PATH)
-
 # ---------------------------
 # 1. Load model + metadata
 # ---------------------------
@@ -257,87 +250,6 @@ with col_right:
 
 st.markdown("---")
 st.subheader("Model summary")
-
-st.markdown("---")
-st.subheader("MTB epitope dataset browser (for testing)")
-
-try:
-    df_all = load_data()
-except Exception as e:
-    st.error(f"Could not load dataset from '{DATA_PATH}': {e}")
-    df_all = None
-
-if df_all is not None:
-    # Basic columns we want to filter on
-    col_qual = "Qualitative Measurement"
-    col_resp = "Response measured"
-    col_mhc  = "MHC Present"
-    col_src  = "Source Organism"
-
-    # ---- Filter widgets ----
-    with st.expander("Filter & search epitopes", expanded=True):
-
-        # 1) Free-text search (any column)
-        search_text = st.text_input(
-            "Search text (matches any column, case-insensitive)",
-            value=""
-        )
-
-        # 2) Categorical filters
-        qual_vals = sorted(df_all[col_qual].dropna().unique())
-        resp_vals = sorted(df_all[col_resp].dropna().unique())
-        mhc_vals  = sorted(df_all[col_mhc].dropna().unique())
-        src_vals  = sorted(df_all[col_src].dropna().unique())
-
-        sel_qual = st.multiselect(
-            "Qualitative Measurement",
-            options=qual_vals,
-            default=qual_vals
-        )
-
-        sel_resp = st.multiselect(
-            "Response_measured_mode",
-            options=resp_vals,
-            default=resp_vals
-        )
-
-        sel_mhc = st.multiselect(
-            "MHC Present_mode",
-            options=mhc_vals,
-            default=mhc_vals
-        )
-
-        sel_src = st.multiselect(
-            "Source Organism",
-            options=src_vals,
-            default=src_vals
-        )
-
-    # ---- Apply filters ----
-    df_view = df_all.copy()
-
-    # categorical filters
-    if sel_qual:
-        df_view = df_view[df_view[col_qual].isin(sel_qual)]
-    if sel_resp:
-        df_view = df_view[df_view[col_resp].isin(sel_resp)]
-    if sel_mhc:
-        df_view = df_view[df_view[col_mhc].isin(sel_mhc)]
-    if sel_src:
-        df_view = df_view[df_view[col_src].isin(sel_src)]
-
-    # text search across all columns (case-insensitive)
-    if search_text.strip():
-        pattern = search_text.strip().lower()
-        mask = df_view.apply(
-            lambda row: row.astype(str).str.lower().str.contains(pattern).any(),
-            axis=1
-        )
-        df_view = df_view[mask]
-
-    st.caption(f"Showing {len(df_view)} of {len(df_all)} rows")
-    st.dataframe(df_view, use_container_width=True)
-
 
 st.markdown(
     """
