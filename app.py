@@ -6,7 +6,7 @@ import streamlit as st
 import joblib
 
 # to search epitopes
-DATA_PATH = "cleaned_final.csv"  # <- replace with your real file name
+DATA_PATH = "mtb_cleaned_final.csv"  # <- replace with your real file name
 
 @st.cache_data
 def load_data():
