@@ -296,13 +296,13 @@ if df_all is not None:
         )
 
         sel_resp = st.multiselect(
-            "Response measured",
+            "Response_measured_mode",
             options=resp_vals,
             default=resp_vals
         )
 
         sel_mhc = st.multiselect(
-            "MHC Present",
+            "MHC Present_mode",
             options=mhc_vals,
             default=mhc_vals
         )
