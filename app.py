@@ -23,6 +23,31 @@ def load_model_and_meta():
 
 rf_model, DECISION_THR, FEATURE_COLS = load_model_and_meta()
 
+SRC_PLACEHOLDER  = "Select source organism"
+MHC_PLACEHOLDER  = "Select MHC context"
+RESP_PLACEHOLDER = "Select response type"
+
+
+# prefixes for one-hot columns (must match training)
+SRC_PREFIX  = "Source Organism_"
+MHC_PREFIX  = "MHC Present_mode_"
+RESP_PREFIX = "Response_measured_mode_"
+
+# derive available options from feature names (N-1 dummies; one implicit baseline)
+SRC_OPTIONS  = sorted([c[len(SRC_PREFIX):]  for c in FEATURE_COLS if c.startswith(SRC_PREFIX)])
+MHC_OPTIONS  = sorted([c[len(MHC_PREFIX):]  for c in FEATURE_COLS if c.startswith(MHC_PREFIX)])
+RESP_OPTIONS = sorted([c[len(RESP_PREFIX):] for c in FEATURE_COLS if c.startswith(RESP_PREFIX)])
+
+BASE_SRC  = "Mycobacterium tuberculosis"   # fill exact string as in your data
+BASE_RESP = "IFNg release"                 # fill exact string as in your data
+# BASE_MHC  = "HLA-DRB1*04:01"              # <-- EXAMPLE, replace with real one
+
+
+SRC_OPTIONS_UI  = [SRC_PLACEHOLDER, BASE_SRC] + SRC_OPTIONS
+MHC_OPTIONS_UI  = [MHC_PLACEHOLDER] + MHC_OPTIONS
+RESP_OPTIONS_UI = [RESP_PLACEHOLDER, BASE_RESP] + RESP_OPTIONS
+
+
 # ---------------------------
 # 2. Feature engineering helpers
 #    (must match training logic)
@@ -74,28 +99,61 @@ def physchem_features(seq: str):
     aromatic_frac = float(aromatic_count / L)
     return [L, hydro_mean, hydro_std, mw, net_charge, aromatic_frac]
 
-def make_feature_row(seq: str) -> pd.DataFrame:
-    """Build one-row feature DataFrame matching FEATURE_COLS."""
+def make_feature_row(
+    seq: str,
+    src_choice: str,
+    mhc_choice: str,
+    resp_choice: str
+) -> pd.DataFrame:
+    """
+    Build one-row feature DataFrame matching FEATURE_COLS.
+    Includes:
+      - sequence-derived numeric features
+      - one-hot encoding for selected Source Organism / MHC / Response
+
+    Baseline categories (BASE_SRC, BASE_MHC, BASE_RESP) are represented
+    by all-zero dummy columns for that group, as in training.
+    """
     seq = seq.strip().upper()
-    # numeric features
-    aac = aa_composition(seq)
+
+    # numeric features from sequence
+    aac  = aa_composition(seq)
     phys = physchem_features(seq)
     num_feats = dict(zip(AA_COMP_COLS + PHYSCHEM_COLS, aac + phys))
 
-    # start with all-zero row
-    row = pd.DataFrame([0.0] * len(FEATURE_COLS), index=FEATURE_COLS).T
+    # start with all zeros for all features
+    row = pd.DataFrame([[0.0] * len(FEATURE_COLS)], columns=FEATURE_COLS)
 
-    # fill numeric columns we actually compute
+    # fill numeric columns
     for k, v in num_feats.items():
         if k in row.columns:
-            row.at[row.index[0], k] = v
+            row.at[0, k] = v
+
+    # --- Source Organism one-hot ---
+    # baseline (BASE_SRC) = all zeros, so do nothing
+    if src_choice not in [SRC_PLACEHOLDER, BASE_SRC]:
+        # one-hot others
+        for col in FEATURE_COLS:
+            if col.startswith(SRC_PREFIX):
+                row.at[0, col] = 1.0 if col == SRC_PREFIX + src_choice else 0.0
+
+    # --- MHC Present_mode one-hot ---
+    if mhc_choice not in [MHC_PLACEHOLDER]:
+        for col in FEATURE_COLS:
+            if col.startswith(MHC_PREFIX):
+                row.at[0, col] = 1.0 if col == MHC_PREFIX + mhc_choice else 0.0
+
+    # --- Response_measured_mode one-hot ---
+    if resp_choice not in [RESP_PLACEHOLDER, BASE_RESP]:
+        for col in FEATURE_COLS:
+            if col.startswith(RESP_PREFIX):
+                row.at[0, col] = 1.0 if col == RESP_PREFIX + resp_choice else 0.0
 
     return row
 
 # ---------------------------
 # 3. Simple validators
 # ---------------------------
-
 VALID_AA_RE = re.compile(r"^[ACDEFGHIKLMNPQRSTVWY]+$")
 
 def validate_sequence(seq: str):
@@ -135,91 +193,59 @@ with col_left:
         placeholder="Enter MTB peptide sequence, e.g. QWERTYASDFGHKL"
     )
 
-    run_single = st.button("Predict Immunogenicity", type="primary")
+    st.markdown("**Experimental / biological context (optional):**")
 
-    st.markdown("---")
-    st.subheader("Batch Prediction (optional)")
-    uploaded_file = st.file_uploader(
-        "Upload CSV with column 'Sequence' for batch prediction",
-        type=["csv"],
-        help="Only the 'Sequence' column is required. Other columns will be ignored."
+    src_choice = st.selectbox(
+        "Source organism",
+        options=SRC_OPTIONS_UI
     )
-    run_batch = st.button("Run Batch Prediction")
+
+    mhc_choice = st.selectbox(
+        "MHC context",
+        options=MHC_OPTIONS_UI
+    )
+
+    resp_choice = st.selectbox(
+        "Response measured",
+        options=RESP_OPTIONS_UI
+    )
+
+
+    run_single = st.button("Predict Immunogenicity", type="primary")
 
 # ---------- RIGHT: OUTPUTS ----------
 with col_right:
     st.subheader("Results")
 
-    # Single prediction result
     if run_single:
         is_valid, msg = validate_sequence(seq_input)
         if not is_valid:
             st.error(msg)
         else:
-            feats = make_feature_row(seq_input)
+            feats = make_feature_row(seq_input, src_choice, mhc_choice, resp_choice)
             proba = rf_model.predict_proba(feats)[:, 1][0]
             label = int(proba >= DECISION_THR)
             label_str = "Immunogenic" if label == 1 else "Non-immunogenic"
 
-            st.success(f"Predicted: **{label_str}**")
+            # Color-coded result
+            if label == 1:
+                st.success(f"Predicted: **{label_str}**")
+            else:
+                st.error(f"Predicted: **{label_str}**")
+
             st.write(f"Model probability (immunogenic): **{proba:.3f}**")
             st.write(f"Decision threshold used: **{DECISION_THR:.2f}**")
 
             st.markdown("**Interpretation (high level):**")
             st.markdown(
                 "- Prediction is based on sequence composition and physicochemical properties "
-                "(hydrophobicity, charge, molecular weight, aromaticity).\n"
-                "- The model was trained on curated MTB epitopes from IEDB "
-                "and evaluated on a held-out test set.\n"
+                "(hydrophobicity, charge, molecular weight, aromaticity), together with the selected "
+                "experimental context (source organism, MHC restriction, response measured).\n"
+                "- The model was trained on curated MTB epitopes from IEDB and evaluated on a held-out test set.\n"
+                "- One category per context variable is encoded as a baseline, which appears here as "
+                "'baseline/unspecified'.\n"
                 "- Values close to the threshold should be interpreted with caution."
             )
-
-    # Batch prediction result
-    if run_batch:
-        if uploaded_file is None:
-            st.error("Please upload a CSV file first.")
-        else:
-            try:
-                df_in = pd.read_csv(uploaded_file)
-            except Exception as e:
-                st.error(f"Could not read CSV: {e}")
-                df_in = None
-
-            if df_in is not None:
-                if "Sequence" not in df_in.columns:
-                    st.error("CSV must contain a 'Sequence' column.")
-                else:
-                    st.info(f"Processing {len(df_in)} peptides...")
-                    preds = []
-                    probs = []
-                    for seq in df_in["Sequence"].astype(str):
-                        ok, _ = validate_sequence(seq)
-                        if not ok:
-                            preds.append(None)
-                            probs.append(None)
-                            continue
-                        feats = make_feature_row(seq)
-                        p = rf_model.predict_proba(feats)[:, 1][0]
-                        probs.append(p)
-                        preds.append(1 if p >= DECISION_THR else 0)
-
-                    df_out = df_in.copy()
-                    df_out["Predicted_label"] = preds
-                    df_out["Predicted_label_str"] = df_out["Predicted_label"].map(
-                        {1: "Immunogenic", 0: "Non-immunogenic", None: "Invalid sequence"}
-                    )
-                    df_out["Probability_immunogenic"] = probs
-
-                    st.success("Batch prediction complete.")
-                    st.dataframe(df_out.head(15))
-
-                    csv_bytes = df_out.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        "Download full predictions as CSV",
-                        data=csv_bytes,
-                        file_name="mtb_epitope_predictions.csv",
-                        mime="text/csv"
-                    )
 
 st.markdown("---")
 st.subheader("Model summary")
