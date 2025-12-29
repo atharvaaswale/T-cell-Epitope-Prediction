@@ -154,7 +154,6 @@ def make_feature_row(
 # ---------------------------
 # 3. Simple validators
 # ---------------------------
-
 VALID_AA_RE = re.compile(r"^[ACDEFGHIKLMNPQRSTVWY]+$")
 
 def validate_sequence(seq: str):
