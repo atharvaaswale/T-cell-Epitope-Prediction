@@ -23,11 +23,30 @@ def load_model_and_meta():
 
 rf_model, DECISION_THR, FEATURE_COLS = load_model_and_meta()
 
+SRC_PLACEHOLDER  = "Select source organism"
+MHC_PLACEHOLDER  = "Select MHC context"
+RESP_PLACEHOLDER = "Select response type"
+
+# prefixes for one-hot columns (must match training)
+SRC_PREFIX  = "Source Organism_"
+MHC_PREFIX  = "MHC Present_mode_"
+RESP_PREFIX = "Response_measured_mode_"
+
+# derive available options from feature names
+SRC_OPTIONS  = sorted([c[len(SRC_PREFIX):]  for c in FEATURE_COLS if c.startswith(SRC_PREFIX)])
+MHC_OPTIONS  = sorted([c[len(MHC_PREFIX):]  for c in FEATURE_COLS if c.startswith(MHC_PREFIX)])
+RESP_OPTIONS = sorted([c[len(RESP_PREFIX):] for c in FEATURE_COLS if c.startswith(RESP_PREFIX)])
+
+BASE_SRC  = "Mycobacterium tuberculosis"   
+BASE_RESP = "IFNg release"                 
+
+SRC_OPTIONS_UI  = [SRC_PLACEHOLDER, BASE_SRC] + SRC_OPTIONS
+MHC_OPTIONS_UI  = [MHC_PLACEHOLDER] + MHC_OPTIONS
+RESP_OPTIONS_UI = [RESP_PLACEHOLDER, BASE_RESP] + RESP_OPTIONS
+
 # ---------------------------
 # 2. Feature engineering helpers
-#    (must match training logic)
 # ---------------------------
-
 AA_LIST = list("ACDEFGHIKLMNPQRSTVWY")
 
 KD = {
@@ -74,28 +93,32 @@ def physchem_features(seq: str):
     aromatic_frac = float(aromatic_count / L)
     return [L, hydro_mean, hydro_std, mw, net_charge, aromatic_frac]
 
-def make_feature_row(seq: str) -> pd.DataFrame:
-    """Build one-row feature DataFrame matching FEATURE_COLS."""
+def make_feature_row(seq, src_choice, mhc_choice, resp_choice):
     seq = seq.strip().upper()
-    # numeric features
-    aac = aa_composition(seq)
+    aac  = aa_composition(seq)
     phys = physchem_features(seq)
     num_feats = dict(zip(AA_COMP_COLS + PHYSCHEM_COLS, aac + phys))
-
-    # start with all-zero row
-    row = pd.DataFrame([0.0] * len(FEATURE_COLS), index=FEATURE_COLS).T
-
-    # fill numeric columns we actually compute
+    row = pd.DataFrame([[0.0] * len(FEATURE_COLS)], columns=FEATURE_COLS)
     for k, v in num_feats.items():
         if k in row.columns:
-            row.at[row.index[0], k] = v
-
+            row.at[0, k] = v
+    if src_choice not in [SRC_PLACEHOLDER, BASE_SRC]:
+        for col in FEATURE_COLS:
+            if col.startswith(SRC_PREFIX):
+                row.at[0, col] = 1.0 if col == SRC_PREFIX + src_choice else 0.0
+    if mhc_choice not in [MHC_PLACEHOLDER]:
+        for col in FEATURE_COLS:
+            if col.startswith(MHC_PREFIX):
+                row.at[0, col] = 1.0 if col == MHC_PREFIX + mhc_choice else 0.0
+    if resp_choice not in [RESP_PLACEHOLDER, BASE_RESP]:
+        for col in FEATURE_COLS:
+            if col.startswith(RESP_PREFIX):
+                row.at[0, col] = 1.0 if col == RESP_PREFIX + resp_choice else 0.0
     return row
 
 # ---------------------------
 # 3. Simple validators
 # ---------------------------
-
 VALID_AA_RE = re.compile(r"^[ACDEFGHIKLMNPQRSTVWY]+$")
 
 def validate_sequence(seq: str):
@@ -105,13 +128,12 @@ def validate_sequence(seq: str):
     if not VALID_AA_RE.match(seq):
         return False, "Sequence contains invalid characters. Use standard one-letter amino-acid codes."
     if not (13 <= len(seq) <= 25):
-        return False, "Please enter a peptide between 13 and 25 amino acids long."
+        return False, "Please enter a peptide between 13 and 25 amino acids (standard length for MHC-II epitopes)."
     return True, ""
 
 # ---------------------------
 # 4. Streamlit UI
 # ---------------------------
-
 st.set_page_config(
     page_title="MTB Epitope Immunogenicity Predictor",
     layout="wide"
@@ -122,103 +144,88 @@ st.caption("Machine learning–based prediction of T-cell immunogenicity for *My
 
 st.markdown("---")
 
-# Layout: two columns – left inputs, right outputs
 col_left, col_right = st.columns([1.1, 1.3])
 
-# ---------- LEFT: INPUTS ----------
 with col_left:
     st.subheader("Single Peptide Prediction")
 
     seq_input = st.text_area(
         "Peptide sequence",
         height=90,
-        placeholder="Enter MTB peptide sequence, e.g. QWERTYASDFGHKL"
+        placeholder="Enter MTB peptide sequence...",
+        help="Peptides should be within the 13–25 amino acid range."
     )
-    st.caption("Enter a peptide sequence **13–25 amino acids** long (one-letter codes only, e.g., `QWERTYASDFGHKL`).")
 
+    st.markdown("**Experimental / biological context (optional):**")
+
+    src_choice = st.selectbox("Source organism", options=SRC_OPTIONS_UI)
+    mhc_choice = st.selectbox("MHC context", options=MHC_OPTIONS_UI)
+    resp_choice = st.selectbox("Response measured", options=RESP_OPTIONS_UI)
 
     run_single = st.button("Predict Immunogenicity", type="primary")
 
-    st.markdown("---")
-    st.subheader("Batch Prediction (optional)")
-    uploaded_file = st.file_uploader(
-        "Upload CSV with column 'Sequence' for batch prediction",
-        type=["csv"],
-        help="Only the 'Sequence' column is required. Other columns will be ignored."
-    )
-    run_batch = st.button("Run Batch Prediction")
-
-# ---------- RIGHT: OUTPUTS ----------
 with col_right:
     st.subheader("Results")
 
-    # Single prediction result
     if run_single:
         is_valid, msg = validate_sequence(seq_input)
         if not is_valid:
             st.error(msg)
         else:
-            feats = make_feature_row(seq_input)
+            feats = make_feature_row(seq_input, src_choice, mhc_choice, resp_choice)
             proba = rf_model.predict_proba(feats)[:, 1][0]
+            proba_pct = proba * 100
+            cutoff_pct = DECISION_THR * 100
             label = int(proba >= DECISION_THR)
+            
             label_str = "Immunogenic" if label == 1 else "Non-immunogenic"
+            result_color = "green" if label == 1 else "red"
 
-            st.success(f"Predicted: **{label_str}**")
-            st.markdown(f"**Model score (immunogenic): {proba*100:.1f}%**")
-            st.caption(
-                f"Cutoff used for classification: {DECISION_THR*100:.0f}%. "
-                "Scores at or above this cutoff are labelled **Immunogenic**."
-            )
-            
-            # Visual probability bar (0–100)
-            proba_pct = float(proba) * 100.0
-            bar_color = "#2e7d32" if label == 1 else "#c62828"
-            st.markdown(
-                f'''
-            <div style="margin-top:8px;margin-bottom:10px;">
-              <div style="display:flex;justify-content:space-between;font-size:0.85rem;color:#444;">
-                <span>0</span><span>100</span>
-              </div>
-              <div style="background:#e6e6e6;border-radius:10px;height:18px;overflow:hidden;">
-                <div style="width:{proba_pct:.1f}%;background:{bar_color};height:18px;"></div>
-              </div>
-            </div>
-            ''',
-                unsafe_allow_html=True,
-            )
-            
-            st.markdown("**Recommendations for Lab Validation**")
+            # Result Header
             if label == 1:
-                st.info("High-priority candidate for ELISpot or Intracellular Cytokine Staining (ICS) validation.")
+                st.success(f"Predicted: **{label_str}**")
             else:
-                st.info("Low-priority. Consider screening alternate MHC-II contexts if MTB-specific response is still suspected.")
+                st.error(f"Predicted: **{label_str}**")
+
+            # Visual Probability Bar
+            st.write(f"**Model Score: {proba_pct:.1f}%**")
+            st.progress(proba) 
+            # Note: Custom CSS for progress bar color is complex in Streamlit, 
+            # so the text color and header already convey the status clearly.
+
+            st.write(f"**Classification cutoff: {cutoff_pct:.0f}%**", 
+                     help="Peptides scoring above this percentage are considered likely to trigger a biological immune response.")
+
+            st.markdown("---")
             
+            # Biological Recommendations
+            st.subheader("Recommendations for Lab Validation")
+            if label == 1:
+                st.info("💡 **High-priority candidate** for ELISpot or Intracellular Cytokine Staining (ICS) validation.")
+            else:
+                st.warning("⚠️ **Low-priority.** Consider screening alternate MHC-II contexts if MTb-specific response is still suspected.")
+
 st.markdown("---")
-st.subheader("Model information")
 
-ms_col, interp_col = st.columns(2, gap="large")
+# Combined Model Info Block
+col_info_1, col_info_2 = st.columns(2)
 
-with ms_col:
+with col_info_1:
+    st.subheader("Model Summary")
     st.markdown(
-        """
-- **Model:** Random Forest (tuned)  
-- **Classification cutoff:** 45%  
-- **Test set performance (held-out MTB epitopes):**  
-  - Accuracy: **0.975**  
-  - Precision (positives): **0.903**  
-  - Recall (positives): **0.613**  
-  - F1-score: **0.730**  
-  - ROC–AUC: **0.867**
-"""
+        f"""
+    - **Algorithm:** Tuned Random Forest Classifier  
+    - **Cutoff:** {DECISION_THR} (Scores above this label as Positive)
+    - **Test Set Performance:** - Accuracy: **0.975** - Precision: **0.903** - Recall: **0.613** - ROC–AUC: **0.867** """
     )
 
-with interp_col:
-    st.markdown("**Interpretation (high level):**")
+with col_info_2:
+    st.subheader("Interpretation (High Level)")
     st.markdown(
         """
-- Prediction is based on sequence composition and physicochemical properties (hydrophobicity, charge, molecular weight, aromaticity), together with the selected experimental context (source organism, MHC restriction, response measured).
-- The model was trained on curated MTB epitopes from IEDB and evaluated on a held-out test set.
-- One category per context variable is encoded as a baseline, which may appear as “baseline/unspecified”.
-- Values close to the cutoff should be interpreted with caution.
-"""
+        - **Biophysical Basis:** Prediction is derived from sequence composition and physicochemical properties such as hydrophobicity, net charge, and aromaticity.
+        - **Biological Context:** The model factors in selected MHC restriction and experimental response types.
+        - **Training Data:** Built using curated *Mycobacterium tuberculosis* epitopes from the IEDB database.
+        - **Note:** Values very close to the cutoff should be treated with additional biological caution.
+        """
     )
