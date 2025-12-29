@@ -23,6 +23,31 @@ def load_model_and_meta():
 
 rf_model, DECISION_THR, FEATURE_COLS = load_model_and_meta()
 
+SRC_PLACEHOLDER  = "Select source organism"
+MHC_PLACEHOLDER  = "Select MHC context"
+RESP_PLACEHOLDER = "Select response type"
+
+
+# prefixes for one-hot columns (must match training)
+SRC_PREFIX  = "Source Organism_"
+MHC_PREFIX  = "MHC Present_mode_"
+RESP_PREFIX = "Response_measured_mode_"
+
+# derive available options from feature names (N-1 dummies; one implicit baseline)
+SRC_OPTIONS  = sorted([c[len(SRC_PREFIX):]  for c in FEATURE_COLS if c.startswith(SRC_PREFIX)])
+MHC_OPTIONS  = sorted([c[len(MHC_PREFIX):]  for c in FEATURE_COLS if c.startswith(MHC_PREFIX)])
+RESP_OPTIONS = sorted([c[len(RESP_PREFIX):] for c in FEATURE_COLS if c.startswith(RESP_PREFIX)])
+
+BASE_SRC  = "Mycobacterium tuberculosis"   # fill exact string as in your data
+BASE_RESP = "IFNg release"                 # fill exact string as in your data
+# BASE_MHC  = "HLA-DRB1*04:01"              # <-- EXAMPLE, replace with real one
+
+
+SRC_OPTIONS_UI  = [SRC_PLACEHOLDER, BASE_SRC] + SRC_OPTIONS
+MHC_OPTIONS_UI  = [MHC_PLACEHOLDER] + MHC_OPTIONS
+RESP_OPTIONS_UI = [RESP_PLACEHOLDER, BASE_RESP] + RESP_OPTIONS
+
+
 # ---------------------------
 # 2. Feature engineering helpers
 #    (must match training logic)
@@ -74,21 +99,54 @@ def physchem_features(seq: str):
     aromatic_frac = float(aromatic_count / L)
     return [L, hydro_mean, hydro_std, mw, net_charge, aromatic_frac]
 
-def make_feature_row(seq: str) -> pd.DataFrame:
-    """Build one-row feature DataFrame matching FEATURE_COLS."""
+def make_feature_row(
+    seq: str,
+    src_choice: str,
+    mhc_choice: str,
+    resp_choice: str
+) -> pd.DataFrame:
+    """
+    Build one-row feature DataFrame matching FEATURE_COLS.
+    Includes:
+      - sequence-derived numeric features
+      - one-hot encoding for selected Source Organism / MHC / Response
+
+    Baseline categories (BASE_SRC, BASE_MHC, BASE_RESP) are represented
+    by all-zero dummy columns for that group, as in training.
+    """
     seq = seq.strip().upper()
     # numeric features
     aac = aa_composition(seq)
     phys = physchem_features(seq)
     num_feats = dict(zip(AA_COMP_COLS + PHYSCHEM_COLS, aac + phys))
 
-    # start with all-zero row
-    row = pd.DataFrame([0.0] * len(FEATURE_COLS), index=FEATURE_COLS).T
+    # start with all zeros for all features
+    row = pd.DataFrame([[0.0] * len(FEATURE_COLS)], columns=FEATURE_COLS)
 
-    # fill numeric columns we actually compute
+    # fill numeric columns
     for k, v in num_feats.items():
         if k in row.columns:
-            row.at[row.index[0], k] = v
+            row.at[0, k] = v
+
+    # --- Source Organism one-hot ---
+    # baseline (BASE_SRC) = all zeros, so do nothing
+    if src_choice not in [SRC_PLACEHOLDER, BASE_SRC]:
+        # one-hot others
+        for col in FEATURE_COLS:
+            if col.startswith(SRC_PREFIX):
+                row.at[0, col] = 1.0 if col == SRC_PREFIX + src_choice else 0.0
+
+    # --- MHC Present_mode one-hot ---
+    if mhc_choice not in [MHC_PLACEHOLDER]:
+        for col in FEATURE_COLS:
+            if col.startswith(MHC_PREFIX):
+                row.at[0, col] = 1.0 if col == MHC_PREFIX + mhc_choice else 0.0
+
+    # --- Response_measured_mode one-hot ---
+    if resp_choice not in [RESP_PLACEHOLDER, BASE_RESP]:
+        for col in FEATURE_COLS:
+            if col.startswith(RESP_PREFIX):
+                row.at[0, col] = 1.0 if col == RESP_PREFIX + resp_choice else 0.0
 
     return row
 
@@ -105,7 +163,7 @@ def validate_sequence(seq: str):
     if not VALID_AA_RE.match(seq):
         return False, "Sequence contains invalid characters. Use standard one-letter amino-acid codes."
     if not (13 <= len(seq) <= 25):
-        return False, "Please enter a peptide between 13 and 25 amino acids long (13–25 letters)."
+        return False, "Sequence length must be between 13 and 25 amino acids (MHC II-like)."
     return True, ""
 
 # ---------------------------
@@ -135,7 +193,23 @@ with col_left:
         placeholder="Enter MTB peptide sequence, e.g. QWERTYASDFGHKL"
     )
 
-    st.caption("Enter a peptide sequence **13–25 amino acids** long using one-letter codes (e.g., `QWERTYASDFGHKL`).")
+    st.markdown("**Experimental / biological context (optional):**")
+
+    src_choice = st.selectbox(
+        "Source organism",
+        options=SRC_OPTIONS_UI
+    )
+
+    mhc_choice = st.selectbox(
+        "MHC context",
+        options=MHC_OPTIONS_UI
+    )
+
+    resp_choice = st.selectbox(
+        "Response measured",
+        options=RESP_OPTIONS_UI
+    )
+
 
     run_single = st.button("Predict Immunogenicity", type="primary")
 
@@ -154,11 +228,14 @@ with col_right:
             label = int(proba >= DECISION_THR)
             label_str = "Immunogenic" if label == 1 else "Non-immunogenic"
 
-            st.success(f"Predicted: **{label_str}**")
+            # Color-coded result
+            if label == 1:
+                st.success(f"Predicted: **{label_str}**")
+            else:
+                st.error(f"Predicted: **{label_str}**")
 
-            # Convert probability to a user-friendly percentage
-            prob_pct = float(proba * 100)
-            cutoff_pct = float(DECISION_THR * 100)
+            st.write(f"Model probability (immunogenic): **{proba:.3f}**")
+            st.write(f"Decision threshold used: **{DECISION_THR:.2f}**")
 
             st.markdown(f"**Model score:** {prob_pct:.1f}% (estimated probability of being immunogenic)")
             st.caption(f"Scores at or above **{cutoff_pct:.0f}%** are labelled *Immunogenic*; below this are *Non-immunogenic*.")
