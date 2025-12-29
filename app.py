@@ -18,8 +18,8 @@ def load_model_and_meta():
     with open(THR_PATH, "r") as f:
         thr = json.load(f)["threshold"]
     with open(FEAT_PATH, "r") as f:
-        feature_cols = json.load(f)["feature_columns"]
-    return model, thr, feature_cols
+        feature_columns = json.load(f)["feature_columns"]
+    return model, thr, feature_columns
 
 rf_model, DECISION_THR, FEATURE_COLS = load_model_and_meta()
 
@@ -179,7 +179,6 @@ with col_right:
             label = int(proba >= DECISION_THR)
             
             label_str = "Immunogenic" if label == 1 else "Non-immunogenic"
-            result_color = "green" if label == 1 else "red"
 
             # Result Header
             if label == 1:
@@ -188,13 +187,12 @@ with col_right:
                 st.error(f"Predicted: **{label_str}**")
 
             # Visual Probability Bar
-            st.write(f"**Model Score: {proba_pct:.1f}%**")
+            st.markdown(f"**Model Score: {proba_pct:.1f}%**")
             st.progress(proba) 
-            # Note: Custom CSS for progress bar color is complex in Streamlit, 
-            # so the text color and header already convey the status clearly.
 
-            st.write(f"**Classification cutoff: {cutoff_pct:.0f}%**", 
-                     help="Peptides scoring above this percentage are considered likely to trigger a biological immune response.")
+            # Fixed Cutoff line using markdown to avoid the TypeError
+            st.markdown(f"**Classification cutoff: {cutoff_pct:.0f}%**", 
+                        help="Peptides scoring above this percentage are considered likely to trigger a biological immune response.")
 
             st.markdown("---")
             
@@ -207,7 +205,7 @@ with col_right:
 
 st.markdown("---")
 
-# Combined Model Info Block
+# Combined Model Info Block at bottom
 col_info_1, col_info_2 = st.columns(2)
 
 with col_info_1:
@@ -216,7 +214,12 @@ with col_info_1:
         f"""
     - **Algorithm:** Tuned Random Forest Classifier  
     - **Cutoff:** {DECISION_THR} (Scores above this label as Positive)
-    - **Test Set Performance:** - Accuracy: **0.975** - Precision: **0.903** - Recall: **0.613** - ROC–AUC: **0.867** """
+    - **Test Set Performance:**
+      - Accuracy: **0.975**
+      - Precision: **0.903**
+      - Recall: **0.613**
+      - ROC–AUC: **0.867**
+    """
     )
 
 with col_info_2:
