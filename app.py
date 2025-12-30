@@ -23,25 +23,6 @@ def load_model_and_meta():
 
 rf_model, DECISION_THR, FEATURE_COLS = load_model_and_meta()
 
-SRC_PLACEHOLDER  = "Select source organism"
-MHC_PLACEHOLDER  = "Select MHC context"
-RESP_PLACEHOLDER = "Select response type"
-
-SRC_PREFIX  = "Source Organism_"
-MHC_PREFIX  = "MHC Present_mode_"
-RESP_PREFIX = "Response_measured_mode_"
-
-SRC_OPTIONS  = sorted([c[len(SRC_PREFIX):]  for c in FEATURE_COLS if c.startswith(SRC_PREFIX)])
-MHC_OPTIONS  = sorted([c[len(MHC_PREFIX):]  for c in FEATURE_COLS if c.startswith(MHC_PREFIX)])
-RESP_OPTIONS = sorted([c[len(RESP_PREFIX):] for c in FEATURE_COLS if c.startswith(RESP_PREFIX)])
-
-BASE_SRC  = "Mycobacterium tuberculosis"   
-BASE_RESP = "IFNg release"                 
-
-SRC_OPTIONS_UI  = [SRC_PLACEHOLDER, BASE_SRC] + SRC_OPTIONS
-MHC_OPTIONS_UI  = [MHC_PLACEHOLDER] + MHC_OPTIONS
-RESP_OPTIONS_UI = [RESP_PLACEHOLDER, BASE_RESP] + RESP_OPTIONS
-
 # ---------------------------
 # 2. Feature engineering helpers
 # ---------------------------
@@ -84,27 +65,26 @@ def physchem_features(seq: str):
     aromatic_frac = float(aromatic_count / L)
     return [L, hydro_mean, hydro_std, mw, net_charge, aromatic_frac]
 
-def make_feature_row(seq, src_choice, mhc_choice, resp_choice):
+def make_feature_row(seq):
+    """
+    Build one-row feature DataFrame matching FEATURE_COLS.
+    Now purely sequence-based (no context variables).
+    """
     seq = seq.strip().upper()
+    
+    # Calculate numeric features
     aac  = aa_composition(seq)
     phys = physchem_features(seq)
     num_feats = dict(zip(AA_COMP_COLS + PHYSCHEM_COLS, aac + phys))
+
+    # Initialize row with zeros
     row = pd.DataFrame([[0.0] * len(FEATURE_COLS)], columns=FEATURE_COLS)
+
+    # Fill numeric columns
     for k, v in num_feats.items():
         if k in row.columns:
             row.at[0, k] = v
-    if src_choice not in [SRC_PLACEHOLDER, BASE_SRC]:
-        for col in FEATURE_COLS:
-            if col.startswith(SRC_PREFIX):
-                row.at[0, col] = 1.0 if col == SRC_PREFIX + src_choice else 0.0
-    if mhc_choice not in [MHC_PLACEHOLDER]:
-        for col in FEATURE_COLS:
-            if col.startswith(MHC_PREFIX):
-                row.at[0, col] = 1.0 if col == MHC_PREFIX + mhc_choice else 0.0
-    if resp_choice not in [RESP_PLACEHOLDER, BASE_RESP]:
-        for col in FEATURE_COLS:
-            if col.startswith(RESP_PREFIX):
-                row.at[0, col] = 1.0 if col == RESP_PREFIX + resp_choice else 0.0
+            
     return row
 
 VALID_AA_RE = re.compile(r"^[ACDEFGHIKLMNPQRSTVWY]+$")
@@ -218,14 +198,10 @@ with col_left:
     # ==========================================
     render_aa_buttons()
     # ==========================================
-
+    
     st.markdown("---")
-    st.markdown("**Experimental / biological context (optional):**")
-
-    src_choice = st.selectbox("Source organism", options=SRC_OPTIONS_UI)
-    mhc_choice = st.selectbox("MHC context", options=MHC_OPTIONS_UI)
-    resp_choice = st.selectbox("Response measured", options=RESP_OPTIONS_UI)
-
+    # Removed: Context selection dropdowns (Source, MHC, Response)
+    
     run_single = st.button("Predict Immunogenicity", type="primary")
 
 # --- RIGHT COLUMN ---
@@ -233,14 +209,15 @@ with col_right:
     st.subheader("Results")
 
     if run_single:
-        # Retrieve the current value from session state or the variable
+        # Retrieve the current value from session state
         current_seq = st.session_state.seq_input_key 
         is_valid, msg = validate_sequence(current_seq)
         
         if not is_valid:
             st.error(msg)
         else:
-            feats = make_feature_row(current_seq, src_choice, mhc_choice, resp_choice)
+            # Context arguments removed from make_feature_row
+            feats = make_feature_row(current_seq)
             proba = rf_model.predict_proba(feats)[:, 1][0]
             proba_pct = proba * 100
             cutoff_pct = DECISION_THR * 100
@@ -289,8 +266,8 @@ with col_info_2:
     st.subheader("Interpretation (High Level)")
     st.markdown(
         """
-        - **Biophysical Basis:** Prediction is derived from sequence composition and physicochemical properties such as hydrophobicity, net charge, and aromaticity.
-        - **Biological Context:** The model factors in selected MHC restriction and experimental response types.
+        - **Biophysical Basis:** Prediction is derived purely from sequence composition and physicochemical properties (hydrophobicity, charge, etc.).
+        - **Model Logic:** Context features (Source, MHC, Response) have been removed to generalize predictions based solely on peptide properties.
         - **Training Data:** Built using curated *Mycobacterium tuberculosis* epitopes from the IEDB database.
         - **Note:** Values very close to the cutoff should be treated with additional biological caution.
         """
