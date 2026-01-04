@@ -255,10 +255,10 @@ with col_info_1:
     - **Algorithm:** Tuned Random Forest Classifier  
     - **Cutoff:** {DECISION_THR:.2f} (Scores above this label as Positive)
     - **Test Set Performance:**
-      - Accuracy: **0.975**
-      - Precision: **0.903**
-      - Recall: **0.613**
-      - ROC–AUC: **0.867**
+      - Accuracy: **0.957**
+      - Precision: **0.767**
+      - Recall: **0.325**
+      - ROC–AUC: **0.766**
     """
     )
 
